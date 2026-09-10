@@ -1,0 +1,18 @@
+# Keychron's QMK checkout and the private toolchain the installer bootstraps
+firmware/qmk/
+firmware/qmk_*/
+firmware/.toolchain/
+
+# Build output
+firmware/build/
+macos/.build/
+macos/K10ProBattery.app/
+macos/ControlCenter/build/
+macos/ControlCenter/K10ProControls.xcodeproj/xcuserdata/
+macos/ControlCenter/K10ProControls.xcodeproj/project.xcworkspace/
+tools/enter-dfu/enter-dfu
+*.bin
+*.hex
+*.o
+
+.DS_Store

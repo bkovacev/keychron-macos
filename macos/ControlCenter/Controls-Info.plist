@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- A real Info.plist, not GENERATE_INFOPLIST_FILE: the extension point has
+       to be nested under NSExtension, and Xcode's INFOPLIST_KEY_* settings
+       only cover a fixed list of flat keys. Without this the bundle builds and
+       installs but pluginkit never registers it. -->
+  <key>NSExtension</key>
+  <dict>
+    <key>NSExtensionPointIdentifier</key>
+    <string>com.apple.widgetkit-extension</string>
+  </dict>
+</dict>
+</plist>
