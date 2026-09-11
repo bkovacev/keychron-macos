@@ -24,6 +24,17 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     /// Last seen permission state, to notice the moment it is granted.
     private var lastPermission: InputMonitoring.Status = .unknown
 
+    /// How long a reading's charging flag is believed.
+    ///
+    /// The keyboard measures USB power at the source, so its flag is the
+    /// authority - including when it is charging from a wall socket while
+    /// typing wirelessly, which this Mac cannot see at all. What cannot be
+    /// believed is an *old* flag: a reading taken on the cable outlives the
+    /// cable being pulled. The beacon refreshes at least every five minutes
+    /// while the keyboard is in use, so anything older than this is treated as
+    /// no longer speaking for the present.
+    private let chargingFlagTrustWindow: TimeInterval = 10 * 60
+
     /// Last reading from a previous run, shown until a live one arrives.
     private var seeded: Reading?
 
@@ -98,10 +109,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     /// Mirror the reading into the system power-source registry, which is what
     /// puts the keyboard in Control Center's Batteries section.
     private func publishPowerSource(_ reading: Reading, cablePresent: Bool) {
-        // The reading can outlive the cable. Charging is only possible while
-        // the cable is attached, and that is known live, so trust it over a
-        // stale flag rather than claiming the keyboard is still charging.
-        let charging = reading.charging && cablePresent
+        let charging = isCharging(reading, cablePresent: cablePresent)
 
         powerSource.publish(
             name: "Keychron K10 Pro",
@@ -162,12 +170,21 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         lightingItem = nil
     }
 
-    /// Charging is only possible with the cable attached, and that is known
-    /// live. A reading can outlive the cable, so trust the live fact rather
-    /// than a stale flag - otherwise the menu reads "charging" directly above
-    /// "Cable: not connected".
+    /// Whether to present the keyboard as charging.
+    ///
+    /// Trust the keyboard's own flag while the reading is recent, since it is
+    /// measuring the charger directly. Fall back to this Mac's view of the
+    /// cable only once the reading is too old to speak for the present -
+    /// otherwise a reading taken on the cable keeps claiming "charging" long
+    /// after the cable was pulled.
+    private func isCharging(_ reading: Reading, cablePresent: Bool) -> Bool {
+        guard reading.charging else { return false }
+        if Date().timeIntervalSince(reading.date) <= chargingFlagTrustWindow { return true }
+        return cablePresent
+    }
+
     private func headline(for reading: Reading) -> String {
-        let charging = reading.charging && monitor.state.hasRawHIDInterface
+        let charging = isCharging(reading, cablePresent: monitor.state.hasRawHIDInterface)
         return charging ? "\(reading.percent)% — charging" : "\(reading.percent)%"
     }
 
