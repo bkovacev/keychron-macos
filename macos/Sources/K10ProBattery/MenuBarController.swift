@@ -21,6 +21,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private var lightingItem: NSMenuItem?
     private var menuIsOpen = false
 
+    /// Last seen permission state, to notice the moment it is granted.
+    private var lastPermission: InputMonitoring.Status = .unknown
+
     /// Last reading from a previous run, shown until a live one arrives.
     private var seeded: Reading?
 
@@ -68,12 +71,18 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             }
         }
 
+        // Ask up front. Without this the agent can neither read the wireless
+        // beacon nor drive the keyboard's LEDs, and the failure is silent.
+        lastPermission = InputMonitoring.status
+        if lastPermission != .granted { InputMonitoring.request() }
+
         monitor.start()
         render(monitor.state)
 
         // The cable channel is request/response, so it needs polling. The
         // Bluetooth beacon pushes on its own and is unaffected by this.
         pollTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            self?.checkPermissionChange()
             self?.monitor.poll()
             self?.monitor.pollLighting()
         }
@@ -115,10 +124,21 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         }
     }
 
+    /// Input Monitoring can be granted long after start-up, and the input
+    /// report callbacks registered beforehand never deliver, so discovery has
+    /// to be redone once it lands.
+    private func checkPermissionChange() {
+        let now = InputMonitoring.status
+        defer { lastPermission = now }
+        guard now == .granted, lastPermission != .granted else { return }
+        monitor.restartDiscovery()
+    }
+
     // MARK: - NSMenuDelegate
 
     func menuWillOpen(_ menu: NSMenu) {
         menuIsOpen = true
+        checkPermissionChange()
         var state = monitor.state
         if state.latest == nil { state.latest = seeded }
         rebuildMenu(state)
@@ -135,8 +155,13 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         lightingItem = nil
     }
 
+    /// Charging is only possible with the cable attached, and that is known
+    /// live. A reading can outlive the cable, so trust the live fact rather
+    /// than a stale flag - otherwise the menu reads "charging" directly above
+    /// "Cable: not connected".
     private func headline(for reading: Reading) -> String {
-        reading.charging ? "\(reading.percent)% — charging" : "\(reading.percent)%"
+        let charging = reading.charging && monitor.state.hasRawHIDInterface
+        return charging ? "\(reading.percent)% — charging" : "\(reading.percent)%"
     }
 
     private func title(for state: BatteryState) -> String {
@@ -156,8 +181,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             headlineItem = item
             menu.addItem(item)
 
-            menu.addItem(disabled("Updated \(relativeFormatter.localizedString(for: reading.date, relativeTo: Date()))"
-                                  + (stale ? " (last known)" : "")))
+            let age = Date().timeIntervalSince(reading.date)
+            var updated = "Updated \(relativeFormatter.localizedString(for: reading.date, relativeTo: Date()))"
+            if stale || age > 900 { updated += " — may be out of date" }
+            menu.addItem(disabled(updated))
 
             if let millivolts = reading.millivolts {
                 let volts = String(format: "%.2f V", Double(millivolts) / 1000)
@@ -239,8 +266,12 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(disabled("Backlight", bold: true))
 
         guard let channel = monitor.availableChannel else {
-            menu.addItem(disabled(state.hasBluetoothInterface
-                ? "Keyboard not reachable" : "Keyboard not found"))
+            if monitor.controlBlockedByPermission {
+                menu.addItem(disabled("Needs Input Monitoring — see above"))
+            } else {
+                menu.addItem(disabled(state.hasBluetoothInterface
+                    ? "Keyboard not reachable" : "Keyboard not found"))
+            }
             return
         }
 

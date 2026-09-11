@@ -50,13 +50,15 @@ final class KeyboardMonitor {
     private var rawHIDDevices: [IOHIDDevice] = []
     private var bluetoothDevices: [IOHIDDevice] = []
 
-    /// Keyboard collections and the LED output elements that carry commands.
-    /// This is the only host-to-keyboard channel over Bluetooth. Bluetooth is
-    /// preferred when both are present, since wireless is the case that needs
-    /// it.
-    private var ledTargets: [(device: IOHIDDevice,
-                              elements: [IOHIDElement],
-                              wireless: Bool)] = []
+    /// Keyboard collections, the only host-to-keyboard channel over Bluetooth.
+    ///
+    /// The LED elements are resolved lazily rather than at discovery time:
+    /// without Input Monitoring the device cannot be opened and the elements
+    /// come back empty, so resolving once at start-up would leave the agent
+    /// permanently unable to control the keyboard even after the grant
+    /// arrives.
+    private var keyboardCollections: [(device: IOHIDDevice, wireless: Bool)] = []
+    private var ledElements: [ObjectIdentifier: [IOHIDElement]] = [:]
 
     /// The keyboard's Bluetooth address, used as a stable power-source
     /// identifier so Control Center recognises the same accessory each launch.
@@ -113,7 +115,34 @@ final class KeyboardMonitor {
     /// Which channel a command would use right now, or nil if none is usable.
     var availableChannel: ControlChannel? {
         if !rawHIDDevices.isEmpty { return .rawHID }
-        if !ledTargets.isEmpty { return .ledReport }
+        if ledTarget != nil { return .ledReport }
+        return nil
+    }
+
+    /// True when a keyboard is present but its LED elements are out of reach,
+    /// which in practice means Input Monitoring has not been granted.
+    var controlBlockedByPermission: Bool {
+        rawHIDDevices.isEmpty && !keyboardCollections.isEmpty && ledTarget == nil
+    }
+
+    /// Resolve the LED elements, opening the device if needed. Wireless first:
+    /// that is the case this channel exists for.
+    private var ledTarget: (device: IOHIDDevice, elements: [IOHIDElement])? {
+        let ordered = keyboardCollections.filter(\.wireless)
+                    + keyboardCollections.filter { !$0.wireless }
+
+        for entry in ordered {
+            let key = ObjectIdentifier(entry.device)
+            if let cached = ledElements[key] { return (entry.device, cached) }
+
+            // Setting an element needs the device open, and a plain keyboard
+            // collection is not opened by listen().
+            _ = IOHIDDeviceOpen(entry.device, IOOptionBits(kIOHIDOptionsTypeNone))
+            if let found = Self.commandLEDElements(of: entry.device) {
+                ledElements[key] = found
+                return (entry.device, found)
+            }
+        }
         return nil
     }
 
@@ -200,15 +229,11 @@ final class KeyboardMonitor {
     /// Result of the last LED-element write, for diagnostics.
     private(set) var lastLEDWriteError: String?
 
-    /// Prefer the wireless interface: it is the case that needs this channel,
-    /// and picking explicitly avoids depending on enumeration order.
-    private var ledTarget: (device: IOHIDDevice, elements: [IOHIDElement], wireless: Bool)? {
-        ledTargets.first { $0.wireless } ?? ledTargets.first
-    }
-
     private func sendViaLEDElements(_ action: UInt8) -> Bool {
         guard let target = ledTarget else {
-            lastLEDWriteError = "no keyboard collection with LED elements"
+            lastLEDWriteError = keyboardCollections.isEmpty
+                ? "keyboard not present"
+                : "LED elements unavailable (Input Monitoring?)"
             return false
         }
 
@@ -246,8 +271,27 @@ final class KeyboardMonitor {
 
     /// Which interface the LED channel would drive right now.
     var ledTargetDescription: String? {
-        guard let t = ledTarget else { return nil }
-        return "\(t.wireless ? "Bluetooth" : "USB") interface, LED usages 3/4/5"
+        guard ledTarget != nil else { return nil }
+        let wireless = keyboardCollections.first(where: \.wireless) != nil
+        return "\(wireless ? "Bluetooth" : "USB") interface, LED usages 3/4/5"
+    }
+
+    /// Re-run discovery. Used when Input Monitoring is granted after start-up:
+    /// the input-report callbacks registered before the grant never deliver.
+    func restartDiscovery() {
+        if let manager {
+            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetCurrent(),
+                                              CFRunLoopMode.defaultMode.rawValue)
+            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        }
+        for buffer in buffers.values { buffer.deallocate() }
+        buffers.removeAll()
+        rawHIDDevices.removeAll()
+        bluetoothDevices.removeAll()
+        keyboardCollections.removeAll()
+        ledElements.removeAll()
+        manager = nil
+        start()
     }
 
     // MARK: - Device bookkeeping
@@ -277,13 +321,9 @@ final class KeyboardMonitor {
             listen(device)
         }
 
-        if usagePage == 0x01 && usage == 0x06,
-           let elements = Self.commandLEDElements(of: device) {
+        if usagePage == 0x01 && usage == 0x06 {
             let wireless = transport.caseInsensitiveCompare("Bluetooth") == .orderedSame
-            // Setting an element needs the device open, and the plain keyboard
-            // collections are not opened by listen() above.
-            _ = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
-            ledTargets.append((device, elements, wireless))
+            keyboardCollections.append((device, wireless))
         }
 
         publish()
@@ -292,7 +332,8 @@ final class KeyboardMonitor {
     private func remove(_ device: IOHIDDevice) {
         rawHIDDevices.removeAll { $0 == device }
         bluetoothDevices.removeAll { $0 == device }
-        ledTargets.removeAll { $0.device == device }
+        keyboardCollections.removeAll { $0.device == device }
+        ledElements.removeValue(forKey: ObjectIdentifier(device))
 
         if let buffer = buffers.removeValue(forKey: ObjectIdentifier(device)) {
             buffer.deallocate()
