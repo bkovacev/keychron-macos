@@ -19,6 +19,7 @@
 #include "quantum.h"
 #include "raw_hid.h"
 #include "keyboard_control.h"
+#include "battery_report.h"
 
 #if defined(LED_MATRIX_ENABLE)
 #    include "led_matrix.h"
@@ -109,6 +110,13 @@ static uint8_t last_applied_leds   = 0;
 /* ------------------------------------------------------------------ */
 
 void keyboard_control_apply(uint8_t action) {
+    /* Not a lighting action, and wanted even on a board with no backlight. */
+    if (action == KEYBOARD_ACTION_REPORT_BATTERY) {
+        battery_report_force_beacon();
+        action_seq++;
+        return;
+    }
+
 #if defined(LIGHTING_KIND)
     switch (action) {
         case KEYBOARD_ACTION_BACKLIGHT_TOGGLE:

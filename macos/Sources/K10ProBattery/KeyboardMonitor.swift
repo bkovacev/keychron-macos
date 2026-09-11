@@ -87,9 +87,18 @@ final class KeyboardMonitor {
         IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
     }
 
-    /// Ask the keyboard for its state over the cable. No-op when unplugged; the
-    /// Bluetooth beacon covers that case on its own schedule.
+    /// Ask the keyboard for its battery level.
+    ///
+    /// Over the cable this is a direct query. Wirelessly there is no query, so
+    /// it asks the keyboard to push one - without that a refresh would silently
+    /// do nothing, since the beacon is otherwise sent entirely on the
+    /// keyboard's own schedule.
     func poll() {
+        guard !rawHIDDevices.isEmpty else {
+            _ = sendViaLEDElements(ControlAction.reportBattery.rawValue)
+            return
+        }
+
         var packet = [UInt8](repeating: 0, count: Wire.reportSize)
         packet[Wire.Offset.cmd] = Wire.cmd
         packet[Wire.Offset.sub] = Wire.subGet

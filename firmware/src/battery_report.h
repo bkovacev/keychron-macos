@@ -152,6 +152,12 @@ void battery_report_notify_sample(void);
  * disturbs it. */
 void battery_report_notify_key_activity(bool pressed);
 
+/* Send a level at the next safe opportunity, ignoring the rate limit and the
+ * "has the host been typing" test. Used when a host explicitly asks, which is
+ * itself proof it is awake. The guards that protect the keyboard's own report
+ * stream still apply. */
+void battery_report_force_beacon(void);
+
 /* Beacon scheduler. Installed as bluetooth_post_task(), so boards that do not
  * define that hook get it for free. */
 void battery_report_task(void);

@@ -49,6 +49,9 @@ static uint8_t  last_beacon_value  = BATTERY_REPORT_PERCENT_UNKNOWN;
 static bool     last_beacon_chg    = false;
 static bool     beacon_dirty       = false;
 
+/* A host has asked for a level, so send one regardless of the usual gating. */
+static bool     beacon_forced      = false;
+
 /* Pending release of the beacon usage. */
 static uint32_t release_due        = 0;
 static bool     release_pending    = false;
@@ -83,6 +86,11 @@ void battery_report_notify_sample(void) {
     has_sample   = true;
     sample_time  = timer_read32();
     beacon_dirty = true;
+}
+
+void battery_report_force_beacon(void) {
+    beacon_forced = true;
+    beacon_dirty  = true;
 }
 
 void battery_report_notify_key_activity(bool pressed) {
@@ -214,15 +222,25 @@ void battery_report_task(void) {
         return;
     }
 
-    if (!beacon_link_ready() || !beacon_host_awake() || !beacon_line_quiet()) return;
+    if (!beacon_link_ready()) return;
+
+    /* A forced beacon skips the wakefulness and quiet-line tests - the host
+     * just spoke, so it is awake, and it is not mid-keystroke. The held-key
+     * guard stays: that one protects the keyboard's own report stream. */
+    if (beacon_forced) {
+        if (keys_down != 0) return;
+    } else if (!beacon_host_awake() || !beacon_line_quiet()) {
+        return;
+    }
 
     uint8_t pct = battery_report_get_percentage();
     if (pct == BATTERY_REPORT_PERCENT_UNKNOWN) return;
 
     bool charging = usb_power_connected();
-    if (!beacon_dirty && !beacon_due(pct, charging)) return;
+    if (!beacon_forced && !beacon_dirty && !beacon_due(pct, charging)) return;
 
-    beacon_dirty = false;
+    beacon_dirty  = false;
+    beacon_forced = false;
 
     uint16_t base = charging ? BATTERY_BEACON_BASE_CHARGING : BATTERY_BEACON_BASE_DISCHARGING;
     beacon_send(base + pct);

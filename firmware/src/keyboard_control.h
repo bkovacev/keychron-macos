@@ -52,7 +52,14 @@ enum keyboard_control_subcmd {
 };
 
 /* One vocabulary for both transports so behaviour cannot drift between them.
- * Values must stay within 1..7 to fit the LED report's three spare bits. */
+ *
+ * Only 1..7 fit the LED channel's three bits, so those seven slots go to the
+ * actions worth having wirelessly. Raw HID carries a whole byte and can reach
+ * anything above that, which is where the rarer actions live.
+ *
+ * REPORT_BATTERY earns a wireless slot because without it a host has no way to
+ * ask: over Bluetooth the keyboard pushes its level and nothing can prompt it,
+ * so a "refresh" button would silently do nothing. */
 enum keyboard_control_action {
     KEYBOARD_ACTION_NONE             = 0,
     KEYBOARD_ACTION_BACKLIGHT_TOGGLE = 1,
@@ -61,7 +68,8 @@ enum keyboard_control_action {
     KEYBOARD_ACTION_BRIGHTNESS_UP    = 4,
     KEYBOARD_ACTION_BRIGHTNESS_DOWN  = 5,
     KEYBOARD_ACTION_EFFECT_NEXT      = 6,
-    KEYBOARD_ACTION_EFFECT_PREV      = 7,
+    KEYBOARD_ACTION_REPORT_BATTERY   = 7,  /* last slot the LED channel reaches */
+    KEYBOARD_ACTION_EFFECT_PREV      = 8,  /* raw HID only */
     KEYBOARD_ACTION_MAX
 };
 

@@ -1,7 +1,7 @@
 import AppKit
 
 /// The menu bar item and its dropdown.
-final class MenuBarController: NSObject {
+final class MenuBarController: NSObject, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let monitor = KeyboardMonitor()
     private let store = BatteryStore()
@@ -14,6 +14,13 @@ final class MenuBarController: NSObject {
     /// stamp an old measurement with a new timestamp and skew the drain rate.
     private var lastRecordedDate: Date?
 
+    /// Live references to the two lines that change while the menu is open, so
+    /// they can be updated in place. Rebuilding the menu underneath an open
+    /// one tears it down mid-click.
+    private var headlineItem: NSMenuItem?
+    private var lightingItem: NSMenuItem?
+    private var menuIsOpen = false
+
     /// Last reading from a previous run, shown until a live one arrives.
     private var seeded: Reading?
 
@@ -25,7 +32,9 @@ final class MenuBarController: NSObject {
 
     func start() {
         statusItem.button?.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
-        statusItem.menu = NSMenu()
+        let menu = NSMenu()
+        menu.delegate = self          // rebuild on open, never while open
+        statusItem.menu = menu
 
         monitor.onUpdate = { [weak self] state in
             guard let self else { return }
@@ -96,7 +105,38 @@ final class MenuBarController: NSObject {
         if state.latest == nil { state.latest = seeded }
         statusItem.button?.title = title(for: state)
         statusItem.button?.toolTip = "Keychron K10 Pro battery"
+
+        // While the menu is up, touch only the lines whose text changed.
+        // Rebuilding would dismiss it, which is what made every click close
+        // the menu.
+        if menuIsOpen {
+            if let reading = state.latest { headlineItem?.title = headline(for: reading) }
+            lightingItem?.title = lightingSummary(state)
+        }
+    }
+
+    // MARK: - NSMenuDelegate
+
+    func menuWillOpen(_ menu: NSMenu) {
+        menuIsOpen = true
+        var state = monitor.state
+        if state.latest == nil { state.latest = seeded }
         rebuildMenu(state)
+
+        // Refresh on open: over the cable this queries directly, wirelessly it
+        // asks the keyboard to push a level.
+        monitor.poll()
+        monitor.pollLighting()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        menuIsOpen = false
+        headlineItem = nil
+        lightingItem = nil
+    }
+
+    private func headline(for reading: Reading) -> String {
+        reading.charging ? "\(reading.percent)% — charging" : "\(reading.percent)%"
     }
 
     private func title(for state: BatteryState) -> String {
@@ -112,10 +152,9 @@ final class MenuBarController: NSObject {
 
         if let reading = state.latest {
             let stale = reading.date == seeded?.date && !state.hasRawHIDInterface
-            let headline = reading.charging
-                ? "\(reading.percent)% — charging"
-                : "\(reading.percent)%"
-            menu.addItem(disabled(headline, bold: true))
+            let item = disabled(headline(for: reading), bold: true)
+            headlineItem = item
+            menu.addItem(item)
 
             menu.addItem(disabled("Updated \(relativeFormatter.localizedString(for: reading.date, relativeTo: Date()))"
                                   + (stale ? " (last known)" : "")))
@@ -183,7 +222,10 @@ final class MenuBarController: NSObject {
 
         menu.addItem(.separator())
 
-        let refresh = NSMenuItem(title: "Refresh Now", action: #selector(refresh), keyEquivalent: "r")
+        let refreshTitle = monitor.availableChannel == .rawHID
+            ? "Refresh Now"
+            : "Ask Keyboard to Report"
+        let refresh = NSMenuItem(title: refreshTitle, action: #selector(refresh), keyEquivalent: "r")
         refresh.target = self
         menu.addItem(refresh)
 
@@ -198,55 +240,61 @@ final class MenuBarController: NSObject {
 
         guard let channel = monitor.availableChannel else {
             menu.addItem(disabled(state.hasBluetoothInterface
-                ? "Needs the cable — macOS blocks writing"
-                : "Keyboard not reachable"))
-            if state.hasBluetoothInterface {
-                menu.addItem(disabled("to a wireless keyboard."))
-            }
+                ? "Keyboard not reachable" : "Keyboard not found"))
             return
         }
 
-        // Over the cable the keyboard tells us whether the backlight is on, so
-        // the toggle can be labelled accurately. Wireless is write-only, so it
-        // stays a plain toggle.
+        // Over the cable the keyboard reports whether the backlight is on, so
+        // the first button can say which way it will go. Wirelessly there is
+        // no readback, so it stays a plain toggle.
         let known = channel == .rawHID ? state.lighting : nil
+        let wired = channel == .rawHID
 
-        let toggle: ControlAction
-        let toggleTitle: String
-        if let known {
-            toggle = known.enabled ? .backlightOff : .backlightOn
-            toggleTitle = known.enabled ? "Turn Off" : "Turn On"
-        } else {
-            toggle = .backlightToggle
-            toggleTitle = "Toggle"
+        var segments: [ControlStripView.Segment] = [
+            .init(symbol: known?.enabled == false ? "lightbulb" : "lightbulb.slash",
+                  title: known.map { $0.enabled ? "Off" : "On" } ?? "Toggle",
+                  enabled: true,
+                  perform: { [weak self] in
+                      self?.run(known.map { $0.enabled ? .backlightOff : .backlightOn }
+                                ?? .backlightToggle)
+                  }),
+            .init(symbol: "sun.min", title: "Dimmer", enabled: true,
+                  perform: { [weak self] in self?.run(.brightnessDown) }),
+            .init(symbol: "sun.max", title: "Brighter", enabled: true,
+                  perform: { [weak self] in self?.run(.brightnessUp) }),
+            .init(symbol: "sparkles", title: "Effect", enabled: true,
+                  perform: { [weak self] in self?.run(.effectNext) }),
+        ]
+
+        // Previous-effect does not fit the wireless channel's three bits.
+        if wired {
+            segments.append(.init(symbol: "arrow.uturn.backward", title: "Back",
+                                  enabled: true,
+                                  perform: { [weak self] in self?.run(.effectPrev) }))
         }
-        menu.addItem(action(toggle, title: toggleTitle, key: "b"))
 
-        menu.addItem(action(.brightnessUp, title: "Brighter", key: "]"))
-        menu.addItem(action(.brightnessDown, title: "Dimmer", key: "["))
-        menu.addItem(action(.effectNext, title: "Next Effect", key: "e"))
+        let strip = NSMenuItem()
+        strip.view = ControlStripView(width: 280, segments: segments)
+        menu.addItem(strip)
 
-        if let known {
-            let percent = Int((Double(known.brightness) / 255 * 100).rounded())
-            menu.addItem(disabled("Brightness  \(percent)%  ·  effect \(known.effect + 1)/\(known.effectCount)"))
-        }
-        menu.addItem(disabled("Sent over  \(channel == .rawHID ? "the cable" : "Bluetooth")"))
+        let summary = disabled(lightingSummary(state))
+        lightingItem = summary
+        menu.addItem(summary)
     }
 
-    private func action(_ act: ControlAction, title: String, key: String) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: #selector(runAction(_:)), keyEquivalent: key)
-        item.target = self
-        item.representedObject = act.rawValue
-        return item
+    private func lightingSummary(_ state: BatteryState) -> String {
+        guard let channel = monitor.availableChannel else { return "" }
+        guard channel == .rawHID, let known = state.lighting else {
+            return "Sent over Bluetooth · keyboard cannot report back"
+        }
+        let percent = Int((Double(known.brightness) / 255 * 100).rounded())
+        return "Brightness \(percent)%  ·  effect \(known.effect + 1)/\(known.effectCount)"
     }
 
-    @objc private func runAction(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? UInt8,
-              let act = ControlAction(rawValue: raw) else { return }
-        monitor.send(act)
-
-        // Give the firmware a moment, then read back the real state.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+    /// Perform an action and refresh, without disturbing the open menu.
+    private func run(_ action: ControlAction) {
+        monitor.send(action)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
             self?.monitor.pollLighting()
         }
     }
@@ -284,6 +332,7 @@ final class MenuBarController: NSObject {
 
     @objc private func refresh() {
         monitor.poll()
+        monitor.pollLighting()
     }
 
     @objc private func fixInputMonitoring() {

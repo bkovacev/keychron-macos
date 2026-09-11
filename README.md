@@ -255,7 +255,7 @@ only services `qmk_rgb_matrix` and your white board is `LED_MATRIX` — so
 | | cable | wireless |
 |---|---|---|
 | **channel** | raw HID command `0xAD` | LED output *elements* |
-| **actions** | all seven | all seven |
+| **actions** | all of them | all but previous-effect |
 | **reads state back** | yes | no |
 
 The wireless channel is the interesting one. macOS refuses to let an ordinary
@@ -266,6 +266,23 @@ rides in three LED usages that light nothing on this board (Scroll Lock,
 Compose, Kana), leaving Caps Lock and Num Lock alone. Each element write is
 its own report, so the firmware waits for the field to settle before acting.
 `docs/RESEARCH.md` §6 has the measurements.
+
+## Polling, and what "refresh" means
+
+Over the cable the agent queries the keyboard directly, every 60 seconds and
+whenever the menu opens.
+
+Wirelessly there is no query: the keyboard pushes its level on its own
+schedule — at most once a minute, only within 60 s of typing, only while no key
+is held, and only when the level changed or five minutes have passed. That
+keeps it off the air while you type and stops it waking a sleeping display.
+
+The consequence is that a plain "refresh" has nothing to send. So the control
+channel carries a `REPORT_BATTERY` action: the menu item becomes **Ask Keyboard
+to Report**, which asks for a level rather than pretending to fetch one. A
+forced beacon skips the rate limit and the "has the host been typing" test —
+the host just spoke, so it is demonstrably awake — but still waits for no key
+to be held.
 
 ## Control Center
 
@@ -279,7 +296,11 @@ make xcode      # generate project, build, install to ~/Applications
 make login      # start at login
 ```
 
-Then open Control Center, click **Edit Controls** at the bottom, and add them.
+Control Center is the two-toggle-switches icon in the menu bar, to the left of
+the clock. Open it, scroll to the bottom, click **Edit Controls**, and the four
+K10 Pro buttons are in the gallery that appears — drag them where you want.
+They also work as menu bar items and can be bound to a Touch Bar or hotkey via
+Shortcuts, since each one is an App Intent.
 
 Xcode is required rather than a hand-built bundle — `pluginkit` would not
 register one, and the reason turned out to be that Xcode's
@@ -311,6 +332,8 @@ means the controls behave the same wired or wireless.
 - **Reported percentage is a voltage curve, not a gas gauge.** Keychron
   interpolates 3300–3500–4100 mV, with a fudge factor added for backlight draw.
   Expect a few points of jitter as the backlight changes.
+- **The wireless channel has seven slots.** Three LED bits, so values 1-7.
+  Previous-effect lives above that and is cable-only; everything else fits.
 - **Reading lighting state needs the cable.** Commands go both ways, but the
   keyboard can only report brightness/effect back over raw HID, so the menu
   shows a plain "Toggle" when wireless instead of "Turn On"/"Turn Off".

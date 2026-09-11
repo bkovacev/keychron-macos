@@ -13,7 +13,8 @@ enum ControlAction: UInt8, CaseIterable {
     case brightnessUp    = 4
     case brightnessDown  = 5
     case effectNext      = 6
-    case effectPrev      = 7
+    case reportBattery   = 7
+    case effectPrev      = 8
 
     var label: String {
         switch self {
@@ -24,8 +25,12 @@ enum ControlAction: UInt8, CaseIterable {
         case .brightnessDown:  return "Dimmer"
         case .effectNext:      return "Next Effect"
         case .effectPrev:      return "Previous Effect"
+        case .reportBattery:   return "Report Battery"
         }
     }
+
+    /// Only 1...7 fit the three LED bits the wireless channel uses.
+    var worksWirelessly: Bool { rawValue <= 7 }
 }
 
 /// Which channel carried a command.
