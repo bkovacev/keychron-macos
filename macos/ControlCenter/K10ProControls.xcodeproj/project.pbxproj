@@ -438,10 +438,14 @@
 				<string>NO</string>
 				<key>CLANG_ENABLE_MODULES</key>
 				<string>YES</string>
+				<key>CODE_SIGN_IDENTITY</key>
+				<string>Apple Development</string>
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
 				<string>1</string>
+				<key>DEVELOPMENT_TEAM</key>
+				<string>A4XC792MFV</string>
 				<key>ENABLE_APP_SANDBOX</key>
 				<string>YES</string>
 				<key>ENABLE_HARDENED_RUNTIME</key>
@@ -480,10 +484,14 @@
 				<string>NO</string>
 				<key>CLANG_ENABLE_MODULES</key>
 				<string>YES</string>
+				<key>CODE_SIGN_IDENTITY</key>
+				<string>Apple Development</string>
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
 				<string>1</string>
+				<key>DEVELOPMENT_TEAM</key>
+				<string>A4XC792MFV</string>
 				<key>ENABLE_APP_SANDBOX</key>
 				<string>YES</string>
 				<key>ENABLE_HARDENED_RUNTIME</key>
@@ -619,10 +627,14 @@
 				<string>NO</string>
 				<key>CLANG_ENABLE_MODULES</key>
 				<string>YES</string>
+				<key>CODE_SIGN_IDENTITY</key>
+				<string>Apple Development</string>
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
 				<string>1</string>
+				<key>DEVELOPMENT_TEAM</key>
+				<string>A4XC792MFV</string>
 				<key>ENABLE_APP_SANDBOX</key>
 				<string>NO</string>
 				<key>ENABLE_HARDENED_RUNTIME</key>
@@ -661,10 +673,14 @@
 				<string>NO</string>
 				<key>CLANG_ENABLE_MODULES</key>
 				<string>YES</string>
+				<key>CODE_SIGN_IDENTITY</key>
+				<string>Apple Development</string>
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
 				<string>1</string>
+				<key>DEVELOPMENT_TEAM</key>
+				<string>A4XC792MFV</string>
 				<key>ENABLE_APP_SANDBOX</key>
 				<string>NO</string>
 				<key>ENABLE_HARDENED_RUNTIME</key>

@@ -17,7 +17,9 @@ as the usual OpenStep format and Xcode reads it happily, rewriting it in its
 own style on first save - which keeps this generator legible.
 """
 
+import os
 import plistlib
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +28,39 @@ HERE = Path(__file__).resolve().parent
 PROJECT = HERE / "K10ProControls.xcodeproj"
 AGENT_SOURCES = sorted((HERE.parent / "Sources" / "K10ProBattery").glob("*.swift"))
 CONTROL_SOURCES = sorted((HERE / "Sources").glob("*.swift"))
+
+def signing_identity() -> tuple[str, str] | None:
+    """First Apple Development identity and its team, or None.
+
+    Worth the trouble because of TCC: an ad-hoc signature gets a fresh code
+    hash on every build, so macOS cannot match the rebuilt app to the Input
+    Monitoring grant and silently drops it. Without that permission the agent
+    can neither read the wireless beacon nor drive the keyboard's LEDs, so a
+    rebuild would quietly break both until the user re-granted by hand.
+    A real certificate keeps the identity stable across builds.
+
+    Set K10PRO_TEAM_ID to choose a specific team; set it empty to force ad-hoc.
+    """
+    override = os.environ.get("K10PRO_TEAM_ID")
+    if override == "":
+        return None
+
+    out = subprocess.run(["security", "find-identity", "-v", "-p", "codesigning"],
+                         capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        match = re.search(r'"(Apple Development: .*)"', line)
+        if not match:
+            continue
+        name = match.group(1)
+        cert = subprocess.run(["security", "find-certificate", "-c", name, "-p"],
+                              capture_output=True, text=True).stdout
+        subject = subprocess.run(["openssl", "x509", "-noout", "-subject"],
+                                 input=cert, capture_output=True, text=True).stdout
+        team = re.search(r"OU\s*=\s*([A-Z0-9]+)", subject)
+        if team and (override is None or team.group(1) == override):
+            return name, team.group(1)
+    return None
+
 
 APP_ID = "io.smartowl.k10pro-battery"
 EXT_ID = f"{APP_ID}.controls"
@@ -93,10 +128,12 @@ COMMON = {
     "CLANG_ENABLE_MODULES": "YES",
     "ALWAYS_SEARCH_USER_PATHS": "NO",
     "ENABLE_HARDENED_RUNTIME": "YES",
-    # Ad-hoc signing is enough to build; Xcode substitutes a development
-    # identity and provisioning automatically when one is available.
     "CODE_SIGN_STYLE": "Automatic",
 }
+
+IDENTITY = signing_identity()
+if IDENTITY:
+    COMMON |= {"CODE_SIGN_IDENTITY": "Apple Development", "DEVELOPMENT_TEAM": IDENTITY[1]}
 
 APP_SETTINGS = COMMON | {
     "PRODUCT_NAME": "K10ProBattery",
@@ -247,6 +284,11 @@ PROJECT.mkdir(parents=True, exist_ok=True)
 out = PROJECT / "project.pbxproj"
 out.write_bytes(plistlib.dumps(pbxproj, fmt=plistlib.FMT_XML))
 print(f"wrote {out.relative_to(HERE.parent.parent)}")
+if IDENTITY:
+    print(f"  signing as:      {IDENTITY[0]} (team {IDENTITY[1]})")
+else:
+    print("  signing:         ad-hoc - macOS will drop the Input Monitoring")
+    print("                   grant on every rebuild; see signing_identity()")
 print(f"  agent sources:   {len(AGENT_SOURCES)}")
 print(f"  control sources: {len(CONTROL_SOURCES)}")
 

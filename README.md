@@ -113,8 +113,16 @@ make login        # and start it at login
 open ~/Applications/K10ProBattery.app
 ```
 
-Then grant **System Settings → Privacy & Security → Input Monitoring** to
-`K10ProBattery`. Without it the cable channel still works, but the wireless
+The agent asks for **Input Monitoring** on first launch — grant it. macOS only
+hands a keyboard's input reports to a process that has it, and the same grant
+is needed to open the keyboard for backlight control, so without it the
+wireless half of everything fails silently.
+
+`make xcode` signs with your Apple Development certificate when one exists,
+which matters more than it sounds: an ad-hoc signature gets a fresh code hash
+on every build, macOS cannot match the rebuilt app to the grant, and Input
+Monitoring is silently dropped each time you rebuild. Set `K10PRO_TEAM_ID=` to
+force ad-hoc if you would rather not sign. Without it the cable channel still works, but the wireless
 beacon never arrives — macOS won't hand a keyboard's input reports to an
 unprivileged process. The menu offers a shortcut to the right pane when it
 detects this.
