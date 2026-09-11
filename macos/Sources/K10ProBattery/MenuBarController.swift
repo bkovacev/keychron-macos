@@ -184,8 +184,13 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     }
 
     private func headline(for reading: Reading) -> String {
-        let charging = isCharging(reading, cablePresent: monitor.state.hasRawHIDInterface)
-        return charging ? "\(reading.percent)% — charging" : "\(reading.percent)%"
+        guard isCharging(reading, cablePresent: monitor.state.hasRawHIDInterface) else {
+            return "\(reading.percent)%"
+        }
+        // Name the power source when it is not this Mac, so the line below
+        // saying the cable is absent does not look like a contradiction.
+        let elsewhere = !monitor.state.hasRawHIDInterface
+        return "\(reading.percent)% — charging" + (elsewhere ? " (elsewhere)" : "")
     }
 
     private func title(for state: BatteryState) -> String {
@@ -246,7 +251,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
-        menu.addItem(disabled("Cable: \(state.hasRawHIDInterface ? "connected" : "not connected")"))
+        // Say "to this Mac": the keyboard can be charging from a wall socket
+        // or another machine, which this Mac cannot see, and a bare
+        // "not connected" next to "charging" reads as a contradiction.
+        menu.addItem(disabled("Cable to this Mac: \(state.hasRawHIDInterface ? "connected" : "not connected")"))
         menu.addItem(disabled("Bluetooth: \(state.hasBluetoothInterface ? "paired" : "not visible")"))
 
         if powerSource.isPublishing {
