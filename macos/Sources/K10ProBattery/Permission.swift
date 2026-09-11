@@ -27,8 +27,12 @@ enum InputMonitoring {
         }
     }
 
-    /// Triggers the system prompt, once per app identity. Returns false when
-    /// already denied, in which case the user has to go to Settings.
+    /// Triggers the system prompt. Returns false when already denied, in which
+    /// case only System Settings can change it.
+    ///
+    /// Only call this in response to something the user did. A background agent
+    /// that asks unprompted gets recorded as denied without any prompt being
+    /// shown, and that denial then has to be undone by hand.
     @discardableResult
     static func request() -> Bool {
         guard let handle, let sym = dlsym(handle, "IOHIDRequestAccess") else { return false }

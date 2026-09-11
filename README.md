@@ -140,6 +140,29 @@ cd macos && ./.build/release/K10ProBattery --demo 67
 That registers a fake 67% and holds it until you press Ctrl-C. Confirm with
 `pmset -g accps`, which is precisely the list Control Center renders.
 
+### If it seems stuck
+
+The agent writes what it currently believes to
+`~/Library/Application Support/K10ProBattery/status.json`:
+
+```json
+{
+  "input_monitoring": "granted",
+  "control_channel": "wireless",
+  "cable_connected": false,
+  "percent": 100,
+  "source": "bluetooth",
+  "reading_age_seconds": 20,
+  "last_remote_action": "Next Effect",
+  "last_remote_delivered": true
+}
+```
+
+`input_monitoring` other than `granted` explains everything else: no wireless
+readings, and `control_channel: none`. The `last_remote_*` fields show whether
+a Control Center button reached the agent, separately from whether the agent
+could reach the keyboard.
+
 Check the keyboard itself from the terminal any time:
 
 ```sh

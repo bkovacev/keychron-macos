@@ -398,3 +398,31 @@ HID carries a whole byte, the LED channel does not. A forced beacon skips the
 rate limit and the wakefulness test - a host that just sent a command is
 awake - while keeping the held-key guard, which exists to protect the
 keyboard's own report stream rather than to gate on activity.
+
+
+## 10. Two ways to lose Input Monitoring
+
+The agent went quiet twice, both times because of the permission rather than
+anything to do with the keyboard, and both times silently. `status.json` exists
+so that is visible: a background agent with no window and no log otherwise
+gives no way to tell a missing permission from an absent keyboard from a
+reading that has not arrived yet.
+
+**An ad-hoc signature loses the grant on every build.** Ad-hoc signing produces
+a fresh code hash each time, macOS cannot match the rebuilt app to its TCC
+record, and Input Monitoring goes away. Since that permission gates both
+reading the wireless beacon and opening the keyboard to drive its LEDs, every
+rebuild broke the entire wireless half with no indication why. Signing with a
+real certificate keeps the identity stable; `generate-project.py` finds an
+Apple Development identity and uses it.
+
+**Asking for the permission unprompted records a denial.** Calling
+`IOHIDRequestAccess` at start-up seemed helpful, but this is a background agent
+with no window: macOS cannot present the prompt, records a denial, and shows
+the user nothing. A denial is worse than never having asked, because only
+System Settings can undo it. The request now happens only from the menu, where
+the user initiated it.
+
+Worth knowing when reading the status file: `IOHIDCheckAccess` reports `denied`
+for an app that is simply not in the allowlist, not only for one that was
+refused. It does not distinguish "never granted" from "explicitly denied".

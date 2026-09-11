@@ -65,16 +65,20 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         // touching HID itself.
         RemoteActions.listen { [weak self] action in
             guard let self else { return }
-            self.monitor.send(action)
+            let channel = self.monitor.send(action)
+            StatusFile.lastRemoteAction = (action, channel != nil, Date())
+            self.render(self.monitor.state)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 self.monitor.pollLighting()
             }
         }
 
-        // Ask up front. Without this the agent can neither read the wireless
-        // beacon nor drive the keyboard's LEDs, and the failure is silent.
+        // Deliberately does not request here. This is a background agent with
+        // no window, so a request it cannot present is recorded by macOS as a
+        // denial with no prompt shown - which burns the permission, since only
+        // System Settings can undo a denial. The menu asks instead, where the
+        // request is user-initiated.
         lastPermission = InputMonitoring.status
-        if lastPermission != .granted { InputMonitoring.request() }
 
         monitor.start()
         render(monitor.state)
@@ -83,6 +87,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         // Bluetooth beacon pushes on its own and is unaffected by this.
         pollTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             self?.checkPermissionChange()
+            self?.render(self?.monitor.state ?? BatteryState())
             self?.monitor.poll()
             self?.monitor.pollLighting()
         }
@@ -122,6 +127,8 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             if let reading = state.latest { headlineItem?.title = headline(for: reading) }
             lightingItem?.title = lightingSummary(state)
         }
+
+        StatusFile.write(state, channel: monitor.availableChannel, seeded: seeded)
     }
 
     /// Input Monitoring can be granted long after start-up, and the input
